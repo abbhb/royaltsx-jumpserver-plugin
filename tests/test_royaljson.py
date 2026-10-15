@@ -234,7 +234,7 @@ class TestBuildObjects(StdinIsolated):
 
     def test_connection_shape(self):
         found = [(path, obj) for path, obj in build(base_config(), self.client)
-                 if obj["Name"] == "root" and "master" in path[-1]]
+                 if obj["Name"] == "root@10.0.0.10" and "master" in path[-1]]
         self.assertEqual(len(found), 1)
         path, root = found[0]
         self.assertEqual(root["Type"], "TerminalConnection")
@@ -280,8 +280,16 @@ class TestBuildObjects(StdinIsolated):
         self.assertFalse([o for o in connections(base_config(), self.client)
                           if "@INPUT" in o["Username"]])
 
-    def test_connections_are_named_after_the_account_username(self):
+    def test_connections_are_named_account_at_address(self):
+        # A tab title is just the connection name, so without the address
+        # every tab on a shared account reads "root".
         names = sorted(obj["Name"] for path, obj in build(base_config(), self.client)
+                       if "master" in path[-1])
+        self.assertEqual(names, ["deploy@10.0.0.10", "root@10.0.0.10"])
+
+    def test_connection_names_can_be_just_the_account(self):
+        cfg = base_config(options={"connection_name": "account"})
+        names = sorted(obj["Name"] for path, obj in build(cfg, self.client)
                        if "master" in path[-1])
         self.assertEqual(names, ["deploy", "root"])
 

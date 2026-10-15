@@ -70,6 +70,10 @@ DEFAULT_CONFIG = {
         "skip_manual_accounts": True,
         "separator": "auto",
         "use_uuid_as_target": False,
+        # How connections are named. "account@address" keeps tab titles
+        # distinct when several machines are open on the same shared account;
+        # "account" is just the username.
+        "connection_name": "account@address",
         "workers": 8,
         "timeout": 20,
         "path_prefix": "",
@@ -637,24 +641,28 @@ def use_local_wrapper(connection, cfg, login):
         connection.pop(key, None)
 
 
-def account_display_names(entries):
+def account_display_names(entries, suffix=""):
     """Name each connection after the account's username.
 
     JumpServer hands accounts an `alias`, which for accounts discovered on an
     asset is often just a UUID -- useless in the tree, since what people
     recognise is the username. When two accounts on the same asset genuinely
     share a username, the alias is appended to tell them apart.
+
+    `suffix` is normally "@<address>": the tree already groups by asset, but a
+    tab title is just the connection name, so without it every tab you open on
+    a shared account reads "root".
     """
     usernames = [account_user for _, account_user in entries]
     duplicated = {u for u in usernames if usernames.count(u) > 1}
 
     names = []
     for account, account_user in entries:
-        name = account_user
+        name = account_user + suffix
         if account_user in duplicated:
             alias = (account.get("alias") or account.get("name") or "").strip()
             if alias and not looks_like_uuid(alias) and alias != account_user:
-                name = "{0} ({1})".format(account_user, alias)
+                name = "{0} ({1})".format(account_user + suffix, alias)
         names.append(name)
     return names
 
@@ -743,6 +751,7 @@ def build_objects(cfg, pairs, nodes):
     if mode not in ("ssh", "local"):
         die("未知的 options.connection_mode: {0}（可选 ssh / local）".format(mode))
     local_mode = mode == "local"
+    name_format = (options.get("connection_name") or "account@address").lower()
     if local_mode and not os.path.exists(TERMINAL_SCRIPT_PATH):
         die("connection_mode 是 local，但找不到 {0}\n"
             "重新跑一次 install.sh 把包装脚本装上。".format(TERMINAL_SCRIPT_PATH))
@@ -755,6 +764,8 @@ def build_objects(cfg, pairs, nodes):
         address = (asset.get("address") or "").strip()
         title = "{0} ({1})".format(name, address) if address and address != name else name
         title = safe_folder_name(title)
+        # Tabs only show the connection name, so qualify it with the address.
+        suffix = "" if name_format == "account" else "@" + (address or name)
 
         parts = list(prefix)
         if group_by == "node" and asset.get("nodes"):
@@ -783,7 +794,7 @@ def build_objects(cfg, pairs, nodes):
             skipped += 1
             continue
 
-        names = account_display_names(usable)
+        names = account_display_names(usable, suffix)
         folder, listing = tree.ensure(parts)
         folder["Description"] = asset_summary(asset)
         folder["Notes"] = asset_notes(asset, names)

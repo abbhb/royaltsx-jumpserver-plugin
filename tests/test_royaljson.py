@@ -470,6 +470,15 @@ class TestStdinCredentials(StdinIsolated):
         jms.credentials_from_stdin()      # populate the cache the hint reads
         self.assertIn("只收到用户名", jms.credential_debug_hint())
 
+    def test_debug_hint_points_at_a_stale_bootstrap(self):
+        # A folder imported from an older build sets no marker. Say that,
+        # rather than blaming the tokens, which are perfectly fine.
+        sys.stdin = FakeStdin("alice\npw\n")
+        os.environ.pop("JMS_CREDS_ON_STDIN", None)
+        jms._STDIN_CREDENTIALS = None
+        jms.credentials_from_stdin()
+        self.assertIn("重新导入", jms.credential_debug_hint())
+
 
 class TestBootstrap(unittest.TestCase):
     """The generated script text is handed to Royal TSX verbatim."""

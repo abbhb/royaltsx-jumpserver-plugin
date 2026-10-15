@@ -161,6 +161,11 @@ def credential_debug_hint():
     stdin_username, stdin_password = _STDIN_CREDENTIALS or (None, None)
     if stdin_password:
         lines.append("stdin 里收到了凭据。")
+    elif os.environ.get("JMS_CREDS_ON_STDIN") != "1":
+        lines.append("脚本没有从 bootstrap 拿到标记（JMS_CREDS_ON_STDIN），"
+                     "所以没去读 stdin。\n"
+                     "  常见原因：动态文件夹里还是旧版导入的脚本正文。"
+                     "用最新的 dist/JumpServer.rdfe 重新导入一次即可。")
     elif stdin_username:
         lines.append("stdin 里只收到用户名，没有密码——"
                      "说明 Credentials 页的密码没填，或者密码 token 没被替换。")

@@ -26,6 +26,7 @@ import base64
 import datetime
 import hashlib
 import hmac
+import html
 import json
 import os
 import re
@@ -224,12 +225,17 @@ def credentials_from_stdin():
     Royal TSX substitutes the tokens into the script text before running it;
     the bootstrap hands them over on stdin so nothing is ever shell-parsed.
     The result is cached because stdin can only be read once.
+
+    Reading is gated on a marker the bootstrap sets, so running the script by
+    hand can never block on an inherited pipe that nobody is going to write to.
     """
     global _STDIN_CREDENTIALS
     if _STDIN_CREDENTIALS is not None:
         return _STDIN_CREDENTIALS
 
     _STDIN_CREDENTIALS = (None, None)
+    if os.environ.get("JMS_CREDS_ON_STDIN") != "1":
+        return _STDIN_CREDENTIALS
     try:
         if sys.stdin is None or sys.stdin.isatty():
             return _STDIN_CREDENTIALS
@@ -605,17 +611,87 @@ def account_display_names(entries):
     return names
 
 
+def labelled(value):
+    """JumpServer serialises choice fields as {"value": ..., "label": ...}."""
+    if isinstance(value, dict):
+        return str(value.get("label") or value.get("value") or "").strip()
+    return value.strip() if isinstance(value, str) else ""
+
+
+def platform_name(asset):
+    platform = asset.get("platform")
+    if isinstance(platform, dict):
+        return str(platform.get("name") or "").strip()
+    return platform.strip() if isinstance(platform, str) else ""
+
+
+def asset_summary(asset):
+    """The one-liner for the object list's Description column."""
+    parts = [platform_name(asset), (asset.get("org_name") or "").strip()]
+    summary = " · ".join(p for p in parts if p)
+    return summary or labelled(asset.get("category")) or (asset.get("address") or "")
+
+
+def asset_notes(asset, account_names):
+    """The detail pane, so a row says more than just its name."""
+    rows = [
+        ("名称", asset.get("name")),
+        ("地址", asset.get("address")),
+        ("平台", platform_name(asset)),
+        ("类型", labelled(asset.get("type"))),
+        ("组织", asset.get("org_name")),
+        ("备注", asset.get("comment")),
+        ("可用账号", "、".join(account_names)),
+        ("资产 ID", asset.get("id")),
+    ]
+    body = "".join(
+        '<tr><th align="left">{0}</th><td>{1}</td></tr>'.format(
+            html.escape(str(label)), html.escape(str(value)))
+        for label, value in rows if value
+    )
+    return "<h3>{0}</h3><table>{1}</table>".format(
+        html.escape(str(asset.get("name") or "")), body)
+
+
+class FolderTree:
+    """Builds nested Folder objects.
+
+    rJSON's `Path` shorthand cannot set properties on the folders themselves,
+    so anything that should show up on an asset row -- a description, notes --
+    requires making the folders first-class objects and nesting into them.
+    """
+
+    def __init__(self):
+        self.roots = []
+        self._by_path = {}
+
+    def ensure(self, parts):
+        """Return (leaf folder, its Objects list), creating the chain."""
+        listing = self.roots
+        key = ""
+        node = None
+        for part in parts:
+            key = (key + "/" + part) if key else part
+            node = self._by_path.get(key)
+            if node is None:
+                node = {"Type": "Folder", "Name": part, "Objects": []}
+                self._by_path[key] = node
+                listing.append(node)
+            listing = node["Objects"]
+        return node, listing
+
+
 def build_objects(cfg, pairs, nodes):
     options = cfg["options"]
     jms_user, password = resolve_credentials(cfg)
     jms_user = jms_user or "unknown"
 
     group_by = options.get("group_by") or "asset"
-    prefix = (options.get("path_prefix") or "").strip("/")
+    prefix = [p for p in (options.get("path_prefix") or "").split("/") if p]
     skip_manual = options.get("skip_manual_accounts", True)
     use_uuid = options.get("use_uuid_as_target", False)
 
-    objects = []
+    tree = FolderTree()
     skipped = 0
 
     for asset, accounts in pairs:
@@ -624,11 +700,11 @@ def build_objects(cfg, pairs, nodes):
         title = "{0} ({1})".format(name, address) if address and address != name else name
         title = safe_folder_name(title)
 
+        parts = list(prefix)
         if group_by == "node" and asset.get("nodes"):
             node_path = nodes.get(asset["nodes"][0], "")
-            folder = "/".join(p for p in (prefix, node_path, title) if p)
-        else:
-            folder = "/".join(p for p in (prefix, title) if p)
+            parts += [p for p in node_path.split("/") if p]
+        parts.append(title)
 
         target = pick_target(asset, use_uuid)
 
@@ -651,8 +727,12 @@ def build_objects(cfg, pairs, nodes):
             skipped += 1
             continue
 
-        for (account, account_user), display in zip(
-                usable, account_display_names(usable)):
+        names = account_display_names(usable)
+        folder, listing = tree.ensure(parts)
+        folder["Description"] = asset_summary(asset)
+        folder["Notes"] = asset_notes(asset, names)
+
+        for (account, account_user), display in zip(usable, names):
             try:
                 username = make_login_username(jms_user, account_user, target,
                                                options.get("separator", "auto"))
@@ -668,17 +748,25 @@ def build_objects(cfg, pairs, nodes):
                 "Port": int(cfg["koko"]["port"]),
                 "Username": username,
                 "CredentialsFromParent": False,
-                "Path": folder,
+                "Description": asset_summary(asset),
             }
             apply_connection_auth(connection, cfg, password)
             apply_terminal_settings(connection, cfg)
-            if address:
-                connection["Description"] = "JumpServer 资产 {0} ({1})".format(name, address)
-            objects.append(connection)
+            listing.append(connection)
 
     if skipped:
         log("注意: {0} 个资产没有任何可用账号，已跳过".format(skipped))
-    return objects
+    return tree.roots
+
+
+def count_connections(objects):
+    total = 0
+    for obj in objects:
+        if obj.get("Type") == "Folder":
+            total += count_connections(obj.get("Objects") or [])
+        else:
+            total += 1
+    return total
 
 
 def emit(cfg, client):
@@ -689,7 +777,7 @@ def emit(cfg, client):
     }
     json.dump(document, sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")
-    log("已生成 {0} 个连接".format(len(objects)))
+    log("已生成 {0} 个连接".format(count_connections(objects)))
 
 
 # --------------------------------------------------------------------------- #
@@ -708,7 +796,8 @@ BOOTSTRAP = (
     "# 真正的逻辑在下面这个 Python 文件里，方便在终端直接跑和调试。\n"
     "# 下面两行会被 Royal TSX 替换成 Credentials 页里填的用户名和密码，\n"
     "# 通过引号包住的 heredoc 传进去，所以密码里有引号或特殊字符也没问题。\n"
-    "env python3 " + SCRIPT_PATH + " <<'JMS_CREDS_EOF'\n"
+    "env JMS_CREDS_ON_STDIN=1 python3 " + SCRIPT_PATH
+    + " <<'JMS_CREDS_EOF'\n"
     "$EffectiveUsername$\n"
     "$EffectivePassword$\n"
     "JMS_CREDS_EOF\n"

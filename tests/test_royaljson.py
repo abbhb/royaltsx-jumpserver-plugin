@@ -37,6 +37,7 @@ class StdinIsolated(unittest.TestCase):
         self._env_backup = dict(os.environ)
         sys.stdin = FakeStdin(tty=True)
         jms._STDIN_CREDENTIALS = None
+        os.environ.pop("JMS_CREDS_ON_STDIN", None)
         for key in list(os.environ):
             flat = "".join(c for c in key.lower() if c.isalpha())
             if flat.endswith(("effectivepassword", "effectiveusername")):
@@ -49,8 +50,9 @@ class StdinIsolated(unittest.TestCase):
         os.environ.update(self._env_backup)
 
     def feed_stdin(self, data):
-        """Pretend Royal TSX substituted the tokens into the heredoc."""
+        """Pretend the bootstrap set its marker and substituted the tokens."""
         sys.stdin = FakeStdin(data)
+        os.environ["JMS_CREDS_ON_STDIN"] = "1"
         jms._STDIN_CREDENTIALS = None
 
 
@@ -76,6 +78,7 @@ ASSET_MASTER = {
     "comment": "",
     "is_active": True,
     "org_id": "00000000-0000-0000-0000-000000000002",
+    "org_name": "Default Org",
 }
 
 ASSET_WEB = {
@@ -89,6 +92,7 @@ ASSET_WEB = {
     "comment": "",
     "is_active": True,
     "org_id": "00000000-0000-0000-0000-000000000002",
+    "org_name": "Default Org",
 }
 
 # JumpServer hands accounts an `alias` that is often just a UUID for accounts
@@ -137,9 +141,23 @@ class FakeClient:
         raise AssertionError("unexpected path " + path)
 
 
+def walk(objects, prefix=()):
+    """Yield (folder path, object) for everything in the generated tree."""
+    for obj in objects:
+        if obj.get("Type") == "Folder":
+            yield from walk(obj.get("Objects") or [], prefix + (obj["Name"],))
+        else:
+            yield prefix, obj
+
+
 def build(cfg, client):
+    """Every (folder path, connection) pair the generator produces."""
     pairs, nodes = jms.collect(cfg, client)
-    return jms.build_objects(cfg, pairs, nodes)
+    return list(walk(jms.build_objects(cfg, pairs, nodes)))
+
+
+def connections(cfg, client):
+    return [obj for _, obj in build(cfg, client)]
 
 
 class TestUsernameFormat(unittest.TestCase):
@@ -202,75 +220,105 @@ class TestBuildObjects(StdinIsolated):
         )
 
     def test_one_connection_per_account(self):
-        objs = build(base_config(), self.client)
-        # master has root + dev (the @INPUT pseudo account is skipped),
+        # master has root + deploy (the @INPUT pseudo account is skipped),
         # web has root.
-        self.assertEqual(len(objs), 3)
+        self.assertEqual(len(connections(base_config(), self.client)), 3)
 
     def test_connection_shape(self):
-        objs = build(base_config(), self.client)
-        root = next(o for o in objs
-                    if o["Name"] == "root" and "master" in o["Path"])
+        found = [(path, obj) for path, obj in build(base_config(), self.client)
+                 if obj["Name"] == "root" and "master" in path[-1]]
+        self.assertEqual(len(found), 1)
+        path, root = found[0]
         self.assertEqual(root["Type"], "TerminalConnection")
         self.assertEqual(root["TerminalConnectionType"], "SSH")
         self.assertEqual(root["ComputerName"], "jumpserver.example.com")
         self.assertEqual(root["Port"], 2222)
         self.assertEqual(root["Username"], "alice@root@10.0.0.10")
         self.assertEqual(root["Password"], "s3cret")
-        self.assertEqual(root["Path"], "k8s-master01 (10.0.0.10)")
+        self.assertEqual(path[-1], "k8s-master01 (10.0.0.10)")
+
+    def test_assets_are_folders_carrying_a_description(self):
+        # The object list's Description column is populated from the folder, so
+        # a row says more than just the asset's name.
+        pairs, nodes = jms.collect(base_config(), self.client)
+        roots = jms.build_objects(base_config(), pairs, nodes)
+        self.assertEqual([f["Name"] for f in roots],
+                         ["k8s-master01 (10.0.0.10)", "web-01 (web-01.internal)"])
+        for folder in roots:
+            self.assertEqual(folder["Type"], "Folder")
+            self.assertTrue(folder["Description"])
+            self.assertTrue(folder["Notes"])
+
+    def test_folder_description_is_platform_and_org(self):
+        pairs, nodes = jms.collect(base_config(), self.client)
+        roots = jms.build_objects(base_config(), pairs, nodes)
+        self.assertEqual(roots[0]["Description"], "Linux · Default Org")
+
+    def test_folder_notes_list_the_available_accounts(self):
+        pairs, nodes = jms.collect(base_config(), self.client)
+        roots = jms.build_objects(base_config(), pairs, nodes)
+        self.assertIn("root", roots[0]["Notes"])
+        self.assertIn("deploy", roots[0]["Notes"])
+
+    def test_folder_notes_escape_html_in_asset_fields(self):
+        asset = dict(ASSET_MASTER, comment="<script>alert(1)</script>")
+        client = FakeClient([asset], {asset["id"]: DETAIL_MASTER})
+        pairs, nodes = jms.collect(base_config(), client)
+        roots = jms.build_objects(base_config(), pairs, nodes)
+        self.assertNotIn("<script>", roots[0]["Notes"])
+        self.assertIn("&lt;script&gt;", roots[0]["Notes"])
 
     def test_manual_input_account_skipped(self):
-        objs = build(base_config(), self.client)
-        self.assertFalse([o for o in objs if "@INPUT" in o["Username"]])
+        self.assertFalse([o for o in connections(base_config(), self.client)
+                          if "@INPUT" in o["Username"]])
 
     def test_connections_are_named_after_the_account_username(self):
-        objs = build(base_config(), self.client)
-        names = sorted(o["Name"] for o in objs if "master" in o["Path"])
+        names = sorted(obj["Name"] for path, obj in build(base_config(), self.client)
+                       if "master" in path[-1])
         self.assertEqual(names, ["deploy", "root"])
 
     def test_uuid_aliases_never_reach_the_tree(self):
-        objs = build(base_config(), self.client)
-        for obj in objs:
+        for obj in connections(base_config(), self.client):
             self.assertFalse(jms.looks_like_uuid(obj["Name"]), obj["Name"])
 
     def test_terminal_content_is_kept_after_disconnect(self):
-        objs = build(base_config(), self.client)
-        for obj in objs:
+        for obj in connections(base_config(), self.client):
             self.assertTrue(obj["Properties"]["KeepTerminalContentOnDisconnect"])
             self.assertTrue(obj["Properties"]["ShowHistoryAfterDisconnect"])
 
     def test_terminal_settings_can_be_turned_off(self):
         cfg = base_config(terminal={"keep_content_on_disconnect": False,
                                     "show_history_after_disconnect": False})
-        objs = build(cfg, self.client)
+        objs = connections(cfg, self.client)
         self.assertTrue(objs)
         self.assertTrue(all("Properties" not in o for o in objs))
 
     def test_non_ip_address_uses_uuid(self):
         # koko's GetUserPermAssetsByIP only matches addresses; a hostname would
         # never resolve, so the asset UUID is the safe target.
-        objs = build(base_config(options={"use_uuid_as_target": True}), self.client)
-        web = next(o for o in objs if "web-01" in o["Path"])
-        self.assertEqual(web["Username"],
-                         "alice@root@" + ASSET_WEB["id"])
+        cfg = base_config(options={"use_uuid_as_target": True})
+        web = [obj for path, obj in build(cfg, self.client)
+               if "web-01" in path[-1]]
+        self.assertEqual(web[0]["Username"], "alice@root@" + ASSET_WEB["id"])
 
-    def test_group_by_node_prefixes_the_path(self):
-        objs = build(base_config(options={"group_by": "node"}), self.client)
-        master = next(o for o in objs if "master" in o["Path"])
-        self.assertEqual(master["Path"], "prod/k8s/k8s-master01 (10.0.0.10)")
+    def test_group_by_node_nests_under_the_node_path(self):
+        cfg = base_config(options={"group_by": "node"})
+        paths = [path for path, obj in build(cfg, self.client)
+                 if "master" in path[-1]]
+        self.assertEqual(paths[0], ("prod", "k8s", "k8s-master01 (10.0.0.10)"))
 
     def test_password_can_be_left_out_of_connections(self):
         # With connection_auth "none" the password stays in the folder's
         # credential and never reaches the generated connections.
         cfg = base_config(connection_auth={"mode": "none"})
-        objs = build(cfg, self.client)
+        objs = connections(cfg, self.client)
         self.assertTrue(objs)
         self.assertTrue(all("Password" not in o for o in objs))
 
     def test_connections_can_use_an_ssh_key(self):
         cfg = base_config(connection_auth={
             "mode": "key", "key_file": "~/.ssh/id_rsa"})
-        objs = build(cfg, self.client)
+        objs = connections(cfg, self.client)
         self.assertTrue(objs)
         for obj in objs:
             self.assertEqual(obj["KeyFilePath"], os.path.expanduser("~/.ssh/id_rsa"))
@@ -356,7 +404,7 @@ class TestCredentials(StdinIsolated):
         cfg = base_config(password_source="royaltsx")
         client = FakeClient(
             [ASSET_MASTER], {ASSET_MASTER["id"]: DETAIL_MASTER})
-        objs = jms.build_objects(cfg, *jms.collect(cfg, client))
+        objs = connections(cfg, client)
         self.assertEqual(objs[0]["Password"], "it's \"fine\" $HOME `id`")
 
 
@@ -388,6 +436,14 @@ class TestStdinCredentials(StdinIsolated):
     def test_a_tty_is_never_read(self):
         # Running --check by hand must not block waiting for input.
         sys.stdin = FakeStdin("should not be read", tty=True)
+        os.environ["JMS_CREDS_ON_STDIN"] = "1"
+        jms._STDIN_CREDENTIALS = None
+        self.assertEqual(jms.credentials_from_stdin(), (None, None))
+
+    def test_stdin_is_ignored_without_the_bootstrap_marker(self):
+        # Otherwise an inherited pipe nobody writes to would hang the script.
+        sys.stdin = FakeStdin("alice\npw\n")
+        os.environ.pop("JMS_CREDS_ON_STDIN", None)
         jms._STDIN_CREDENTIALS = None
         self.assertEqual(jms.credentials_from_stdin(), (None, None))
 

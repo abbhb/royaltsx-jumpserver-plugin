@@ -47,7 +47,10 @@ else
 fi
 
 mkdir -p "$REPO_DIR/dist"
-"$PY" "$TARGET_DIR/jms_royaltsx.py" --emit-rdfe "$RDFE" 2>/dev/null
+if ! "$PY" "$TARGET_DIR/jms_royaltsx.py" --emit-rdfe "$RDFE"; then
+    echo "生成导入文件失败，上面的错误信息说明了原因。" >&2
+    exit 1
+fi
 
 cat <<EOF
 

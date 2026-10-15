@@ -66,6 +66,8 @@ def base_config(**overrides):
         "koko": {"host": "jumpserver.example.com", "port": 2222},
         "auth": {"mode": "password", "username": "alice", "password": "s3cret"},
         "password_source": "config",
+        # Most tests are about the plain SSH shape; local mode has its own.
+        "options": {"connection_mode": "ssh"},
     })
     return jms.deep_merge(cfg, overrides)
 
@@ -597,6 +599,19 @@ class TestConfigMerge(unittest.TestCase):
         cfg = jms.deep_merge(jms.DEFAULT_CONFIG, {"base_url": "https://x/"})
         self.assertEqual(cfg["options"]["workers"], 8)
         self.assertEqual(cfg["koko"]["port"], 2222)
+
+    def test_default_connection_mode_is_local(self):
+        # Shipping "ssh" as the default meant a fresh install got a broken pipe
+        # on every drop and lost its scrollback -- the exact thing this plugin
+        # exists to avoid. Anyone upgrading from a config that predates the key
+        # picks this up too.
+        self.assertEqual(jms.DEFAULT_CONFIG["options"]["connection_mode"], "local")
+
+    def test_example_config_matches_the_code_default(self):
+        import json as _json
+        example = _json.loads((REPO / "config.example.json").read_text(encoding="utf-8"))
+        self.assertEqual(example["options"]["connection_mode"],
+                         jms.DEFAULT_CONFIG["options"]["connection_mode"])
 
 
 if __name__ == "__main__":

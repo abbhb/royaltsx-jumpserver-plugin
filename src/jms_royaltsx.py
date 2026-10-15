@@ -77,13 +77,14 @@ DEFAULT_CONFIG = {
         "workers": 8,
         "timeout": 20,
         "path_prefix": "",
-        # "ssh"   -- plain SSH connections straight to koko (default).
         # "local" -- Royal TSX runs a local wrapper instead, so the terminal
         #            belongs to a process that never dies. A dropped session
         #            then costs nothing: no broken pipe, no closed tab, and the
         #            scrollback stays put. Press R in the terminal to dial back
         #            in.
-        "connection_mode": "ssh",
+        # "ssh"   -- plain SSH connections straight to koko; reconnect is then
+        #            Royal TSX's own, which loses the tab and the scrollback.
+        "connection_mode": "local",
     },
     # How the generated SSH connections authenticate to koko. The JumpServer
     # credential above is what the *API* login uses; this is separate, because
@@ -1000,6 +1001,14 @@ def run_check(cfg, client):
     say("JumpServer : {0}".format(cfg["base_url"]))
     say("koko SSH   : {0}:{1}".format(cfg["koko"]["host"], cfg["koko"]["port"]))
     say("认证方式   : {0}".format(cfg["auth"].get("mode")))
+
+    mode = (cfg["options"].get("connection_mode") or "local").lower()
+    if mode == "local":
+        say("连接模式   : local —— 测试连接走本地包装脚本，断开后按 R 重连")
+    else:
+        say("连接模式   : ssh —— 原生 SSH 连接；断开后是 broken pipe，")
+        say("             重连会新开标签页、丢失屏幕内容。想要按 R 重连就把")
+        say("             options.connection_mode 改成 local。")
 
     env_username, env_password = credentials_from_royaltsx()
     source = (cfg.get("password_source") or "royaltsx").lower()

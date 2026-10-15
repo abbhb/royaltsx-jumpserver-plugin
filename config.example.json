@@ -34,7 +34,7 @@
     "separator": "auto",
     "use_uuid_as_target": false,
     "connection_name": "account@address",
-    "connection_mode": "ssh",
+    "connection_mode": "local",
     "workers": 8,
     "timeout": 20,
     "path_prefix": ""

@@ -587,7 +587,12 @@ def safe_folder_name(text):
     return text.replace("/", "-").replace("\\", "-").strip()
 
 
-def apply_terminal_settings(connection, cfg):
+def tmux_safe(text):
+    """tmux session names may not contain '.' or ':'."""
+    return re.sub(r"[^A-Za-z0-9_-]", "-", text or "").strip("-")
+
+
+def apply_terminal_settings(connection, cfg, jms_user=""):
     """Keep the terminal content so it can still be scrolled back after the
     session ends -- whether by `exit` or by a dropped link -- and optionally
     drop straight into a persistent session on the far side."""
@@ -600,6 +605,12 @@ def apply_terminal_settings(connection, cfg):
 
     command = (terminal.get("connect_command") or "").strip()
     if command:
+        # %JMS_USER% keeps one person's session from becoming the place a
+        # colleague lands. On a bastion everyone is often logging in as the
+        # same shared *account*, so the OS user is no help here -- the
+        # JumpServer platform user is what actually differs.
+        command = command.replace("%JMS_USER%",
+                                  tmux_safe(jms_user) or "user")
         wait = int(terminal.get("connect_command_wait_ms") or 2000)
         properties["KeySequence"] = "{{WAIT:{0}}}{1}{{ENTER}}".format(wait, command)
         properties["KeySequenceEnabled"] = True
@@ -771,7 +782,7 @@ def build_objects(cfg, pairs, nodes):
                 "Description": asset_summary(asset),
             }
             apply_connection_auth(connection, cfg, password)
-            apply_terminal_settings(connection, cfg)
+            apply_terminal_settings(connection, cfg, jms_user)
             listing.append(connection)
 
     if skipped:

@@ -139,21 +139,33 @@ JMS_CREDS_EOF
 
 ```json
 "terminal": {
-  "connect_command": "command -v tmux >/dev/null && tmux new -A -s royaltsx",
+  "connect_command": "command -v tmux >/dev/null && tmux new -A -s royaltsx-%JMS_USER%",
   "connect_command_wait_ms": 2000
 }
 ```
 
-`tmux new -A -s royaltsx` 的语义是「有就 attach，没有就新建」。效果：
+`tmux new -A -s <名字>` 的语义是「有就 attach，没有就新建」。效果：
 
-- 连上 → 进入名为 `royaltsx` 的 tmux 会话
+- 连上 → 进入名为 `royaltsx-<你的JumpServer用户名>` 的 tmux 会话
 - 网络断掉 / 手滑 `exit` → **⌘R** 重连 → 回到**同一个会话**，滚动历史、跑着的任务都还在
 - 开头的 `command -v tmux >/dev/null &&` 是为了目标机没装 tmux 时安静跳过，不弹
   `command not found`
 
+> **⚠️ 名字里一定要带 `%JMS_USER%`**
+>
+> 堡垒机上大家经常用的是**同一个共享账号**（`root`、`deploy` 这种），所以 OS 层的
+> `whoami` 对所有人是一样的，帮不了你。如果会话名写死成 `royaltsx`，第二个人 `-A`
+> 上来就会 attach 进第一个人的会话——两个人看同一块屏、互相打断。
+>
+> `%JMS_USER%` 会在生成时替换成你在配置里填的 JumpServer 用户名，所以每个人的会话是
+> 分开的。字符会被清洗过（tmux 不允许会话名里有 `.` 和 `:`）。
+
+同一台机器同时开两个标签页会 attach 到同一个会话（这是「重连能回来」的另一面）。
+要每个标签页独立，就在 `connect_command` 里再加点变化，比如带上 `$(tty | tr / _)`。
+
 `connect_command` 就是连上以后打到远端 shell 里的一行命令，以 KeySequence 的形式发出，
 所以它是在远端执行的普通命令——想换成 screen 或者别的都行。`{WAIT:2000}` 是等 2 秒再
-发，避免和登录 banner 打架；你截图里那种带一大段注意事项 banner 的机器可以调大一点。
+发，避免和登录 banner 打架；带一大段注意事项 banner 的机器可以调大一点。
 
 **⌘R** = 菜单里的 **Reconnect**，重连当前标签页（内容还在，见上面两条设置）。
 也可以去设置里把「双击连接标签页」的行为改成 Reconnect
@@ -266,7 +278,7 @@ koko SSH   : jumpserver.example.com:2222
 | `connection_auth.key_passphrase` | 空 | 私钥口令 |
 | `terminal.keep_content_on_disconnect` | `true` | 连接断开后保留终端内容（对应 `KeepTerminalContentOnDisconnect`） |
 | `terminal.show_history_after_disconnect` | `true` | 断开后显示历史，便于往上翻（对应 `ShowHistoryAfterDisconnect`） |
-| `terminal.connect_command` | 空 | 连上后自动执行的一行命令，配 tmux 可让重连回到同一个会话 |
+| `terminal.connect_command` | 空 | 连上后自动执行的一行命令，配 tmux 可让重连回到同一个会话；支持 `%JMS_USER%` 占位符 |
 | `terminal.connect_command_wait_ms` | `2000` | 上面那条命令等多久再发（毫秒） |
 | `org_id` | 空 | 多组织部署时填组织 UUID，会作为 `X-JMS-ORG` 头发送 |
 | `verify_tls` | `true` | 自签证书的部署可以改成 `false` |

@@ -1,0 +1,10 @@
+# Generated locally by install.sh -- it embeds absolute paths for this machine,
+# so it is not something to commit.
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store

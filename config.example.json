@@ -1,0 +1,45 @@
+{
+  "base_url": "https://jumpserver.example.com",
+
+  "koko": {
+    "host": "jumpserver.example.com",
+    "port": 2222
+  },
+
+  "auth": {
+    "mode": "password",
+    "username": "alice",
+    "password": "",
+    "private_token": "",
+    "access_key_id": "",
+    "access_key_secret": ""
+  },
+
+  "password_source": "royaltsx",
+  "keychain_service": "royaltsx-jumpserver",
+
+  "org_id": "",
+  "verify_tls": true,
+
+  "connection_auth": {
+    "mode": "password",
+    "key_file": "",
+    "key_passphrase": ""
+  },
+
+  "terminal": {
+    "keep_content_on_disconnect": true,
+    "show_history_after_disconnect": true
+  },
+
+  "options": {
+    "group_by": "asset",
+    "include_accounts": true,
+    "skip_manual_accounts": true,
+    "separator": "auto",
+    "use_uuid_as_target": false,
+    "workers": 8,
+    "timeout": 20,
+    "path_prefix": ""
+  }
+}

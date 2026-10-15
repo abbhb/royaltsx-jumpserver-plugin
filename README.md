@@ -165,13 +165,39 @@ JMS_CREDS_EOF
 不想记右键菜单的话，去设置里把「双击连接标签页」的行为改成 **Reconnect**
 （`MouseDoubleClickModeConnectionTabs`），以后双击那个断开的标签页就重连。
 
-> **为什么不能直接按一下 `R`？**
+> **（上面这条只针对 `connection_mode: "ssh"`。）为什么不能直接按一下 `R`？**
 > 终端插件里没有这个功能——它基于 iTerm2，而 iTerm2 那个 "Session ended. Restart it?"
 > 的提示 Royal TSX 没有接出来（插件的设置项和 release notes 里都没有相关项）。
 >
 > 至于 macOS 的「App 快捷键」（系统设置 → 键盘 → 键盘快捷键），它**只能绑菜单栏里的项**，
 > 而 `Reconnect Tab` 是右键菜单项，够不着。能绑的只有那个范围更大的 `Reconnect`——绑了
 > 之后按一下会弹上面那个确认框，还会在正常打字时把 `R` 吃掉。不建议。
+
+### local 模式：断开后按 R 直接重连
+
+上面那套能让你**看见**历史，但重连仍然是 Royal TSX 的动作：⌘R 会先断开所有活动连接，右键
+菜单的 Reconnect Tab 则会新开一个标签页——历史就没了。
+
+要让「断开后按一下 `R` 就回来，而且屏幕上原来那些一个不少」，得让终端会话**不属于 SSH
+连接**。做法是让 Royal TSX 跑一个**本地**命令，由这个本地进程去连堡垒机：
+
+```json
+"options": { "connection_mode": "local" }
+```
+
+开启后每个连接变成 Custom Terminal，实际执行的是
+`~/.config/royaltsx-jumpserver/jms_terminal.sh <登录名> <koko主机> <端口>`：
+
+- 终端会话属于这个本地脚本，而**它自己不会死**——所以断开不产生 broken pipe、标签页不会
+  被关、你已经打出来的东西全都在
+- SSH 断开后脚本在屏幕上打一行 `━━━ 连接已断开 ━━━`，提示 **R 重连 / Q 关闭**
+- 按 `R` 重新连上去，历史还在同一块屏幕上；`Q` 才关掉标签页
+
+改回 `"connection_mode": "ssh"` 就恢复成普通 SSH 连接。
+
+> 这个模式下 Royal TSX 不再自己发起连接，所以连接对象上不带主机名、用户名、密码——
+> `ssh` 是在你本机跑的，需要密码时它直接在终端里问你，用密钥时走你 `~/.ssh` 里的配置
+> （设置 `JMS_SERVER_ALIVE_INTERVAL` 可以调探活间隔，默认 30 秒）。
 
 ### 树里的名字
 
@@ -281,6 +307,7 @@ koko SSH   : jumpserver.example.com:2222
 | `options.skip_manual_accounts` | `true` | 跳过「手动输入」这类伪账号（`@INPUT`），它没法用直连格式表达 |
 | `options.separator` | `auto` | `auto` 会优先用 `@`，账号名里含 `@` 时自动改用 `#` |
 | `options.use_uuid_as_target` | `false` | 资产的 `address` 不是 IP 时建议打开，改用资产 UUID |
+| `options.connection_mode` | `ssh` | `ssh` 生成普通 SSH 连接；`local` 改由本地包装脚本发起，断开后可按 R 重连 |
 | `options.embed_password_in_connections` | `true` | 关掉则连接里不带密码，改由 Royal TSX 凭据在连接时提供 |
 | `options.workers` | `8` | 拉取每个资产账号列表的并发数 |
 | `options.path_prefix` | 空 | 给所有连接加一层目录前缀 |

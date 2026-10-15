@@ -30,6 +30,7 @@ import html
 import json
 import os
 import re
+import shlex
 import socket
 import ssl
 import subprocess
@@ -44,6 +45,9 @@ CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "royaltsx-jumpserv
 # installed one -- handy for trying settings out.
 CONFIG_PATH = os.environ.get("JMS_ROYALTSX_CONFIG") or os.path.join(CONFIG_DIR, "config.json")
 SCRIPT_PATH = os.path.join(CONFIG_DIR, "jms_royaltsx.py")
+# The wrapper Royal TSX runs for "local" connections, so the terminal session
+# outlives any single SSH connection.
+TERMINAL_SCRIPT_PATH = os.path.join(CONFIG_DIR, "jms_terminal.sh")
 
 DEFAULT_CONFIG = {
     "base_url": "",
@@ -69,6 +73,13 @@ DEFAULT_CONFIG = {
         "workers": 8,
         "timeout": 20,
         "path_prefix": "",
+        # "ssh"   -- plain SSH connections straight to koko (default).
+        # "local" -- Royal TSX runs a local wrapper instead, so the terminal
+        #            belongs to a process that never dies. A dropped session
+        #            then costs nothing: no broken pipe, no closed tab, and the
+        #            scrollback stays put. Press R in the terminal to dial back
+        #            in.
+        "connection_mode": "ssh",
     },
     # How the generated SSH connections authenticate to koko. The JumpServer
     # credential above is what the *API* login uses; this is separate, because
@@ -606,6 +617,26 @@ def apply_terminal_settings(connection, cfg):
         connection["Properties"] = properties
 
 
+def use_local_wrapper(connection, cfg, login):
+    """Turn a connection into one Royal TSX runs as a local command.
+
+    The terminal session then belongs to the wrapper process rather than to the
+    SSH connection, so a drop cannot end the tab or take the scrollback with
+    it -- the wrapper just offers R to dial back in.
+    """
+    command = " ".join(shlex.quote(part) for part in (
+        TERMINAL_SCRIPT_PATH, login, cfg["koko"]["host"], str(int(cfg["koko"]["port"]))))
+
+    connection["TerminalConnectionType"] = "CustomTerminal"
+    connection["CustomCommand"] = command
+
+    # Royal TSX no longer dials anything itself: ssh runs locally, and prompts
+    # for whatever it needs on the terminal.
+    for key in ("ComputerName", "Port", "Username", "Password",
+                "KeyFilePath", "KeyFilePassphrase", "CredentialsFromParent"):
+        connection.pop(key, None)
+
+
 def account_display_names(entries):
     """Name each connection after the account's username.
 
@@ -708,6 +739,14 @@ def build_objects(cfg, pairs, nodes):
     skip_manual = options.get("skip_manual_accounts", True)
     use_uuid = options.get("use_uuid_as_target", False)
 
+    mode = (options.get("connection_mode") or "ssh").lower()
+    if mode not in ("ssh", "local"):
+        die("未知的 options.connection_mode: {0}（可选 ssh / local）".format(mode))
+    local_mode = mode == "local"
+    if local_mode and not os.path.exists(TERMINAL_SCRIPT_PATH):
+        die("connection_mode 是 local，但找不到 {0}\n"
+            "重新跑一次 install.sh 把包装脚本装上。".format(TERMINAL_SCRIPT_PATH))
+
     tree = FolderTree()
     skipped = 0
 
@@ -767,7 +806,10 @@ def build_objects(cfg, pairs, nodes):
                 "CredentialsFromParent": False,
                 "Description": asset_summary(asset),
             }
-            apply_connection_auth(connection, cfg, password)
+            if local_mode:
+                use_local_wrapper(connection, cfg, username)
+            else:
+                apply_connection_auth(connection, cfg, password)
             apply_terminal_settings(connection, cfg)
             listing.append(connection)
 

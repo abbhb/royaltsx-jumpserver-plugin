@@ -40,6 +40,7 @@
     "skip_manual_accounts": true,
     "separator": "auto",
     "use_uuid_as_target": false,
+    "connection_mode": "ssh",
     "workers": 8,
     "timeout": 20,
     "path_prefix": ""

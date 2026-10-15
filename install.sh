@@ -34,6 +34,9 @@ chmod 700 "$TARGET_DIR"
 install -m 755 "$REPO_DIR/src/jms_royaltsx.py" "$TARGET_DIR/jms_royaltsx.py"
 echo "已安装脚本 -> $TARGET_DIR/jms_royaltsx.py"
 
+install -m 755 "$REPO_DIR/src/jms_terminal.sh" "$TARGET_DIR/jms_terminal.sh"
+echo "已安装终端包装脚本 -> $TARGET_DIR/jms_terminal.sh"
+
 if [ -f "$CONFIG" ] && [ "$FORCE" -eq 0 ]; then
     echo "配置已存在，保持不变 -> $CONFIG"
     echo "（要覆盖请加 --force）"

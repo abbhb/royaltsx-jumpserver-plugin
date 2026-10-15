@@ -6,6 +6,7 @@ Run with:  python3 tests/test_royaljson.py
 """
 
 import os
+import pathlib
 import subprocess
 import sys
 import unittest
@@ -13,6 +14,9 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
 import jms_royaltsx as jms  # noqa: E402
+
+REPO = pathlib.Path(__file__).resolve().parent.parent
+WRAPPER = REPO / "src" / "jms_terminal.sh"
 
 
 class FakeStdin:
@@ -212,6 +216,10 @@ class TestAccountNaming(unittest.TestCase):
 class TestBuildObjects(StdinIsolated):
     def setUp(self):
         super().setUp()
+        # Local mode checks that the wrapper is installed; point it at the one
+        # in the repo so the suite does not depend on install.sh having run.
+        self._real_wrapper = jms.TERMINAL_SCRIPT_PATH
+        jms.TERMINAL_SCRIPT_PATH = str(WRAPPER)
         self.client = FakeClient(
             [ASSET_MASTER, ASSET_WEB],
             {ASSET_MASTER["id"]: DETAIL_MASTER, ASSET_WEB["id"]: DETAIL_WEB},
@@ -346,6 +354,43 @@ class TestBuildObjects(StdinIsolated):
         with self.assertRaises(SystemExit):
             build(cfg, self.client)
 
+    def test_local_mode_emits_a_custom_terminal(self):
+        # The wrapper owns the terminal session, so a drop cannot end the tab
+        # or take the scrollback with it.
+        cfg = base_config(options={"connection_mode": "local"})
+        commands = [obj["CustomCommand"] for obj in connections(cfg, self.client)]
+        self.assertTrue(commands)
+        for obj, command in zip(connections(cfg, self.client), commands):
+            self.assertEqual(obj["TerminalConnectionType"], "CustomTerminal")
+            self.assertIn("jms_terminal.sh", command)
+            self.assertIn("jumpserver.example.com", command)
+            self.assertIn("2222", command)
+        self.assertTrue(any("alice@root@10.0.0.10" in c for c in commands))
+
+    def test_local_mode_leaves_no_ssh_fields_behind(self):
+        # Royal TSX dials nothing itself in this mode; ssh runs locally.
+        cfg = base_config(options={"connection_mode": "local"})
+        for obj in connections(cfg, self.client):
+            for key in ("ComputerName", "Port", "Username", "Password"):
+                self.assertNotIn(key, obj)
+
+    def test_local_mode_keeps_the_scrollback_settings(self):
+        cfg = base_config(options={"connection_mode": "local"},
+                          terminal={"history_max_length": 50000})
+        for obj in connections(cfg, self.client):
+            self.assertEqual(obj["Properties"]["HistoryMaxLength"], 50000)
+
+    def test_unknown_connection_mode_is_an_error(self):
+        cfg = base_config(options={"connection_mode": "nope"})
+        with self.assertRaises(SystemExit):
+            build(cfg, self.client)
+
+    def test_local_mode_without_the_wrapper_is_an_error(self):
+        cfg = base_config(options={"connection_mode": "local"})
+        jms.TERMINAL_SCRIPT_PATH = "/nonexistent/jms_terminal.sh"
+        with self.assertRaises(SystemExit):
+            build(cfg, self.client)
+
     def test_keychain_password_is_read_from_security(self):
         cfg = base_config(password_source="keychain")
         cfg["auth"]["password"] = ""
@@ -370,6 +415,10 @@ class TestBuildObjects(StdinIsolated):
         self.assertEqual(password, "from-keychain")
         self.assertIn("find-generic-password", recorded["cmd"])
         self.assertIn("alice", recorded["cmd"])
+
+    def tearDown(self):
+        jms.TERMINAL_SCRIPT_PATH = self._real_wrapper
+        super().tearDown()
 
 
 class TestCredentials(StdinIsolated):

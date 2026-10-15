@@ -128,6 +128,21 @@ JMS_CREDS_EOF
    **「Keep remotely disconnected tabs open」**（`DontCloseTabOnRemoteDisconnect`），
    勾上。不勾的话，`exit` 或掉线时标签页还是会被关掉，前面那两条就看不到了。
 
+### 断开后怎么快速重连
+
+**⌘R** —— 就是菜单里的 **Reconnect**，重连当前标签页，内容还在。这是最快的路径。
+
+也可以去设置里把「双击标签页」的行为改成 **Reconnect**（`MouseDoubleClickModeConnectionTabs`），
+以后双击那个断开的标签页就重连。
+
+> **为什么不能直接敲 `R` 或回车？**
+> 终端里的按键是转发给远端 shell 的，会话断了以后没有 shell 可以接收。而且裸键也不能
+> 绑定快捷键——那样正常连接时 `R` 和回车就打不进去了。RDP 插件在断线时会盖一层
+> "点击重连" 的浮层，但 iTerm2 那套终端插件没有这个浮层，所以只能走菜单命令。
+
+> 另：`AutoReconnectMode`（Always / Never / Prompt）管的是**重启 Royal TSX 之后**要不要
+> 恢复上次的连接，和运行中掉线是两回事，别指望它。
+
 ### 树里的名字
 
 每个连接显示的是**账号用户名**（比如 `deploy`），不是 JumpServer 给账号分配的

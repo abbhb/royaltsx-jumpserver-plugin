@@ -168,29 +168,6 @@ JMS_CREDS_EOF
 >
 > 稳妥的还是 **⌘R**。
 
-### 可选：让重连回到同一个远端会话
-
-上面那套保留的是**本地屏幕上已经打出来的内容**。如果你要的是**远端那个 shell 进程本身
-活着**（比如正在跑的任务不能断），那 SSH 层面没有这个能力——TCP 断了就是断了，koko 也会
-跟着把你的会话销毁。唯一的办法是让目标机上有个跟 SSH 通道解耦的东西把 shell 撑着，
-也就是 tmux / screen：
-
-```json
-"terminal": {
-  "connect_command": "command -v tmux >/dev/null && tmux new -A -s royaltsx-%JMS_USER%"
-}
-```
-
-`tmux new -A -s <名字>` 是「有就 attach，没有就新建」，于是断线后 ⌘R 重连会回到**同一个
-远端会话**，跑着的任务都还在。开头那句 `command -v tmux >/dev/null &&` 是为了目标机没装
-tmux 时安静跳过，不弹 `command not found`。
-
-> `%JMS_USER%` **不能省**。堡垒机上大家常常用同一个共享账号（`root` 这种），OS 层的
-> `whoami` 对所有人一样，帮不了你；名字写死的话第二个人会 attach 进第一个人的会话。
-> `%JMS_USER%` 会替换成你的 JumpServer 用户名，字符会被清洗（tmux 不允许 `.` 和 `:`）。
->
-> 另外这会让同一台机器的两个标签页共享一个会话——这是「重连能回来」的另一面。
-
 ### 树里的名字
 
 每个连接显示的是**账号用户名**（比如 `deploy`），不是 JumpServer 给账号分配的
@@ -292,8 +269,6 @@ koko SSH   : jumpserver.example.com:2222
 | `terminal.show_history_after_disconnect` | `true` | 断开后显示历史，便于往上翻（对应 `ShowHistoryAfterDisconnect`） |
 | `terminal.history_max_length` | `0` | 滚动缓冲行数，`0` 表示沿用 Royal TSX 的默认（`1000`） |
 | `terminal.history_unlimited` | `false` | 不限滚动缓冲行数 |
-| `terminal.connect_command` | 空 | 连上后自动执行的一行命令，配 tmux 可让重连回到同一个远端会话；支持 `%JMS_USER%` 占位符 |
-| `terminal.connect_command_wait_ms` | `2000` | 上面那条命令等多久再发（毫秒） |
 | `org_id` | 空 | 多组织部署时填组织 UUID，会作为 `X-JMS-ORG` 头发送 |
 | `verify_tls` | `true` | 自签证书的部署可以改成 `false` |
 | `options.group_by` | `asset` | `asset` 按资产分组；`node` 按 JumpServer 资产树分组 |

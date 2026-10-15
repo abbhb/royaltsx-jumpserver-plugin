@@ -90,13 +90,6 @@ DEFAULT_CONFIG = {
         # that default alone.
         "history_max_length": 0,
         "history_unlimited": False,
-        # Optional, off by default: a command typed into the remote shell once
-        # the session is up, so a reconnect can land in a multiplexer session
-        # that outlives the SSH channel. %JMS_USER% expands to the JumpServer
-        # user, which matters because everyone on a bastion tends to share one
-        # OS account.
-        "connect_command": "",
-        "connect_command_wait_ms": 2000,
     },
 }
 
@@ -593,15 +586,9 @@ def safe_folder_name(text):
     return text.replace("/", "-").replace("\\", "-").strip()
 
 
-def tmux_safe(text):
-    """tmux session names may not contain '.' or ':'."""
-    return re.sub(r"[^A-Za-z0-9_-]", "-", text or "").strip("-")
-
-
-def apply_terminal_settings(connection, cfg, jms_user=""):
-    """Keep the terminal content so it can still be scrolled back after the
-    session ends -- whether by `exit` or by a dropped link -- and optionally
-    drop straight into a persistent session on the far side."""
+def apply_terminal_settings(connection, cfg):
+    """Keep the terminal content and enough scrollback to be worth keeping, so
+    a drop can be scrolled back through after reconnecting."""
     terminal = cfg.get("terminal") or {}
     properties = {}
     if terminal.get("keep_content_on_disconnect", True):
@@ -614,19 +601,6 @@ def apply_terminal_settings(connection, cfg, jms_user=""):
         properties["HistoryMaxLength"] = history
     if terminal.get("history_unlimited"):
         properties["HistoryUnlimited"] = True
-
-    command = (terminal.get("connect_command") or "").strip()
-    if command:
-        # %JMS_USER% keeps one person's session from becoming the place a
-        # colleague lands. On a bastion everyone is often logging in as the
-        # same shared *account*, so the OS user is no help here -- the
-        # JumpServer platform user is what actually differs.
-        command = command.replace("%JMS_USER%",
-                                  tmux_safe(jms_user) or "user")
-        wait = int(terminal.get("connect_command_wait_ms") or 2000)
-        properties["KeySequence"] = "{{WAIT:{0}}}{1}{{ENTER}}".format(wait, command)
-        properties["KeySequenceEnabled"] = True
-        properties["KeySequenceMode"] = 0
 
     if properties:
         connection["Properties"] = properties
@@ -794,7 +768,7 @@ def build_objects(cfg, pairs, nodes):
                 "Description": asset_summary(asset),
             }
             apply_connection_auth(connection, cfg, password)
-            apply_terminal_settings(connection, cfg, jms_user)
+            apply_terminal_settings(connection, cfg)
             listing.append(connection)
 
     if skipped:

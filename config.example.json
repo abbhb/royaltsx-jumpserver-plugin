@@ -31,9 +31,7 @@
     "keep_content_on_disconnect": true,
     "show_history_after_disconnect": true,
     "history_max_length": 0,
-    "history_unlimited": false,
-    "connect_command": "",
-    "connect_command_wait_ms": 2000
+    "history_unlimited": false
   },
 
   "options": {

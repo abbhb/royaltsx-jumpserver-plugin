@@ -293,24 +293,6 @@ class TestBuildObjects(StdinIsolated):
         self.assertTrue(objs)
         self.assertTrue(all("Properties" not in o for o in objs))
 
-    def test_connect_command_becomes_a_key_sequence(self):
-        # The way to survive a reconnect: drop into a multiplexer session that
-        # outlives the SSH channel.
-        cfg = base_config(terminal={
-            "connect_command": "tmux new -A -s royaltsx",
-            "connect_command_wait_ms": 1500,
-        })
-        for obj in connections(cfg, self.client):
-            properties = obj["Properties"]
-            self.assertTrue(properties["KeySequenceEnabled"])
-            self.assertEqual(properties["KeySequenceMode"], 0)
-            self.assertEqual(properties["KeySequence"],
-                             "{WAIT:1500}tmux new -A -s royaltsx{ENTER}")
-
-    def test_no_key_sequence_unless_configured(self):
-        for obj in connections(base_config(), self.client):
-            self.assertNotIn("KeySequence", obj["Properties"])
-
     def test_scrollback_limit_is_left_alone_by_default(self):
         # Royal TSX caps this at 1000 lines; only override when asked, so the
         # plugin does not quietly change everyone's memory footprint.
@@ -327,32 +309,6 @@ class TestBuildObjects(StdinIsolated):
         cfg = base_config(terminal={"history_unlimited": True})
         for obj in connections(cfg, self.client):
             self.assertTrue(obj["Properties"]["HistoryUnlimited"])
-
-    def test_connect_command_expands_the_platform_user(self):
-        # Everybody on a bastion often logs in as the same shared OS account,
-        # so the tmux session name must key off the JumpServer user -- whoami
-        # would be identical for every colleague.
-        cfg = base_config(terminal={
-            "connect_command": "tmux new -A -s royaltsx-%JMS_USER%"})
-        for obj in connections(cfg, self.client):
-            self.assertIn("tmux new -A -s royaltsx-alice{ENTER}",
-                          obj["Properties"]["KeySequence"])
-
-    def test_two_platform_users_never_share_a_session(self):
-        client = FakeClient([ASSET_MASTER], {ASSET_MASTER["id"]: DETAIL_MASTER})
-        seen = set()
-        for user in ("alice", "bob"):
-            cfg = base_config(terminal={
-                "connect_command": "tmux new -A -s royaltsx-%JMS_USER%"})
-            cfg["auth"]["username"] = user
-            seen.add(connections(cfg, client)[0]["Properties"]["KeySequence"])
-        self.assertEqual(len(seen), 2)
-
-    def test_platform_user_is_made_tmux_safe(self):
-        # tmux session names may not contain '.' or ':'.
-        self.assertEqual(jms.tmux_safe("bob.smith:1"), "bob-smith-1")
-        self.assertEqual(jms.tmux_safe("alice"), "alice")
-        self.assertEqual(jms.tmux_safe(""), "")
 
     def test_non_ip_address_uses_uuid(self):
         # koko's GetUserPermAssetsByIP only matches addresses; a hostname would

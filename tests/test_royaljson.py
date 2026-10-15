@@ -311,6 +311,23 @@ class TestBuildObjects(StdinIsolated):
         for obj in connections(base_config(), self.client):
             self.assertNotIn("KeySequence", obj["Properties"])
 
+    def test_scrollback_limit_is_left_alone_by_default(self):
+        # Royal TSX caps this at 1000 lines; only override when asked, so the
+        # plugin does not quietly change everyone's memory footprint.
+        for obj in connections(base_config(), self.client):
+            self.assertNotIn("HistoryMaxLength", obj["Properties"])
+            self.assertNotIn("HistoryUnlimited", obj["Properties"])
+
+    def test_scrollback_limit_can_be_raised(self):
+        cfg = base_config(terminal={"history_max_length": 50000})
+        for obj in connections(cfg, self.client):
+            self.assertEqual(obj["Properties"]["HistoryMaxLength"], 50000)
+
+    def test_scrollback_can_be_unlimited(self):
+        cfg = base_config(terminal={"history_unlimited": True})
+        for obj in connections(cfg, self.client):
+            self.assertTrue(obj["Properties"]["HistoryUnlimited"])
+
     def test_connect_command_expands_the_platform_user(self):
         # Everybody on a bastion often logs in as the same shared OS account,
         # so the tmux session name must key off the JumpServer user -- whoami

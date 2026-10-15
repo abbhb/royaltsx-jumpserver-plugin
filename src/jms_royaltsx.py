@@ -85,10 +85,16 @@ DEFAULT_CONFIG = {
     "terminal": {
         "keep_content_on_disconnect": True,
         "show_history_after_disconnect": True,
-        # Sent to the remote shell once the session is up. Point it at a
-        # terminal multiplexer and a reconnect lands back in the same shell,
-        # with its scrollback and running jobs intact -- SSH itself has no
-        # session resumption, so this is the only way to get that.
+        # Royal TSX caps scrollback at 1000 lines by default, which is what
+        # actually decides how far back you can look after a drop. 0 leaves
+        # that default alone.
+        "history_max_length": 0,
+        "history_unlimited": False,
+        # Optional, off by default: a command typed into the remote shell once
+        # the session is up, so a reconnect can land in a multiplexer session
+        # that outlives the SSH channel. %JMS_USER% expands to the JumpServer
+        # user, which matters because everyone on a bastion tends to share one
+        # OS account.
         "connect_command": "",
         "connect_command_wait_ms": 2000,
     },
@@ -602,6 +608,12 @@ def apply_terminal_settings(connection, cfg, jms_user=""):
         properties["KeepTerminalContentOnDisconnect"] = True
     if terminal.get("show_history_after_disconnect", True):
         properties["ShowHistoryAfterDisconnect"] = True
+
+    history = int(terminal.get("history_max_length") or 0)
+    if history > 0:
+        properties["HistoryMaxLength"] = history
+    if terminal.get("history_unlimited"):
+        properties["HistoryUnlimited"] = True
 
     command = (terminal.get("connect_command") or "").strip()
     if command:

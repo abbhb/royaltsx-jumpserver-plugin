@@ -128,56 +128,68 @@ JMS_CREDS_EOF
    **「Keep remotely disconnected tabs open」**（`DontCloseTabOnRemoteDisconnect`），
    勾上。不勾的话，`exit` 或掉线时标签页还是会被关掉，前面那两条就看不到了。
 
-### 断开后回到原来的会话
+### 断开后保留上下文并重连
 
-先讲清楚一件事：**SSH 协议本身没有会话恢复**。TCP 断了就是断了，重连永远是新建一条
-连接、新开一个 shell。koko 那边也一样——会话跟着你的 SSH 连接一起销毁，不会替你留着。
-所以「重连回去，原来那个实例还在」在 SSH 层面做不到，只能让目标机上有个跟 SSH 通道
-**解耦**的东西把 shell 撑着，也就是 **tmux**（或 screen）。
+掉线或者 `exit` 之后，标签页不关、之前的内容留在屏幕上，重连回来接着用。这个**不需要
+目标机上装任何东西**，全部是本地终端的行为。
 
-于是可以这样配：连上以后自动进一个 tmux 会话。
+| 在哪 | 设置 | 作用 |
+| --- | --- | --- |
+| 每个连接 | `KeepTerminalContentOnDisconnect` | 断开时保留终端内容 |
+| 每个连接 | `ShowHistoryAfterDisconnect` | 断开后把历史显示出来 |
+| 每个连接 | `HistoryMaxLength` | **能往回翻多少行**，见下 |
+| 应用设置 | 「Keep remotely disconnected tabs open」 | 断开的标签页不自动关 |
+
+前两条已经默认写进生成的连接里了。第四条是 Royal TSX 的**应用级设置**，这个动态文件夹
+改不了，要在设置窗口里搜 **Keep remotely disconnected tabs open** 勾上——不勾的话断开时
+标签页还是会被关掉，前两条就白设了。
+
+> **⚠️ 真正的瓶颈是 `HistoryMaxLength`**
+> Royal TSX 的滚动缓冲**默认只保留 1000 行**。留不留下内容是一回事，能往回翻多远是另一
+> 回事——断了以后你想翻的往往是更早的输出。要加大就在配置里设：
+> ```json
+> "terminal": { "history_max_length": 50000 }
+> ```
+> 或者 `"history_unlimited": true`（不限制，噪音大的会话会吃内存）。
+> 默认值是 `0`，表示不动 Royal TSX 自己的设置。
+
+**重连**按 **⌘R**（菜单里的 Reconnect），重连当前标签页，内容还在。也可以去设置里把
+「双击连接标签页」的行为改成 Reconnect（`MouseDoubleClickModeConnectionTabs`），以后
+双击那个断开的标签页就重连。
+
+> **为什么不能直接按一下 `R`？**
+> 终端插件里没有这个功能——它基于 iTerm2，而 iTerm2 那个 "Session ended. Restart it?"
+> 的提示 Royal TSX 没有接出来（我查过插件自己的设置和 release notes，没有相关项）。
+>
+> macOS 倒是可以在「系统设置 → 键盘 → 键盘快捷键 → App 快捷键」里，给菜单项
+> **Reconnect** 指定一个自定义快捷键，技术上裸键 `R` 也能录进去。**但风险很大**：如果
+> "Reconnect" 这个菜单项在你正常打字时也是可用的，它就会把这期间你敲的每一个 `R` 都吃掉。
+> 想试可以试，建议先观察一下——真要吃键就删掉这个快捷键。
+>
+> 稳妥的还是 **⌘R**。
+
+### 可选：让重连回到同一个远端会话
+
+上面那套保留的是**本地屏幕上已经打出来的内容**。如果你要的是**远端那个 shell 进程本身
+活着**（比如正在跑的任务不能断），那 SSH 层面没有这个能力——TCP 断了就是断了，koko 也会
+跟着把你的会话销毁。唯一的办法是让目标机上有个跟 SSH 通道解耦的东西把 shell 撑着，
+也就是 tmux / screen：
 
 ```json
 "terminal": {
-  "connect_command": "command -v tmux >/dev/null && tmux new -A -s royaltsx-%JMS_USER%",
-  "connect_command_wait_ms": 2000
+  "connect_command": "command -v tmux >/dev/null && tmux new -A -s royaltsx-%JMS_USER%"
 }
 ```
 
-`tmux new -A -s <名字>` 的语义是「有就 attach，没有就新建」。效果：
+`tmux new -A -s <名字>` 是「有就 attach，没有就新建」，于是断线后 ⌘R 重连会回到**同一个
+远端会话**，跑着的任务都还在。开头那句 `command -v tmux >/dev/null &&` 是为了目标机没装
+tmux 时安静跳过，不弹 `command not found`。
 
-- 连上 → 进入名为 `royaltsx-<你的JumpServer用户名>` 的 tmux 会话
-- 网络断掉 / 手滑 `exit` → **⌘R** 重连 → 回到**同一个会话**，滚动历史、跑着的任务都还在
-- 开头的 `command -v tmux >/dev/null &&` 是为了目标机没装 tmux 时安静跳过，不弹
-  `command not found`
-
-> **⚠️ 名字里一定要带 `%JMS_USER%`**
+> `%JMS_USER%` **不能省**。堡垒机上大家常常用同一个共享账号（`root` 这种），OS 层的
+> `whoami` 对所有人一样，帮不了你；名字写死的话第二个人会 attach 进第一个人的会话。
+> `%JMS_USER%` 会替换成你的 JumpServer 用户名，字符会被清洗（tmux 不允许 `.` 和 `:`）。
 >
-> 堡垒机上大家经常用的是**同一个共享账号**（`root`、`deploy` 这种），所以 OS 层的
-> `whoami` 对所有人是一样的，帮不了你。如果会话名写死成 `royaltsx`，第二个人 `-A`
-> 上来就会 attach 进第一个人的会话——两个人看同一块屏、互相打断。
->
-> `%JMS_USER%` 会在生成时替换成你在配置里填的 JumpServer 用户名，所以每个人的会话是
-> 分开的。字符会被清洗过（tmux 不允许会话名里有 `.` 和 `:`）。
-
-同一台机器同时开两个标签页会 attach 到同一个会话（这是「重连能回来」的另一面）。
-要每个标签页独立，就在 `connect_command` 里再加点变化，比如带上 `$(tty | tr / _)`。
-
-`connect_command` 就是连上以后打到远端 shell 里的一行命令，以 KeySequence 的形式发出，
-所以它是在远端执行的普通命令——想换成 screen 或者别的都行。`{WAIT:2000}` 是等 2 秒再
-发，避免和登录 banner 打架；带一大段注意事项 banner 的机器可以调大一点。
-
-**⌘R** = 菜单里的 **Reconnect**，重连当前标签页（内容还在，见上面两条设置）。
-也可以去设置里把「双击连接标签页」的行为改成 Reconnect
-（`MouseDoubleClickModeConnectionTabs`），以后双击那个断开的标签页就重连。
-
-> **为什么不能直接敲 `R` 或回车？**
-> 终端里的按键是转发给远端 shell 的，会话断了以后没有 shell 接收。而且裸键也不能绑定
-> 快捷键——那样正常连接时 `R` 和回车就打不进去了。RDP 插件断线时会盖一层「点击重连」
-> 的浮层，iTerm2 那套终端插件没有这个浮层，所以只能走菜单命令。
-
-> 另：`AutoReconnectMode`（Always / Never / Prompt）管的是**重启 Royal TSX 之后**要不要
-> 恢复上次的连接，和运行中掉线是两回事，别指望它。
+> 另外这会让同一台机器的两个标签页共享一个会话——这是「重连能回来」的另一面。
 
 ### 树里的名字
 
@@ -278,7 +290,9 @@ koko SSH   : jumpserver.example.com:2222
 | `connection_auth.key_passphrase` | 空 | 私钥口令 |
 | `terminal.keep_content_on_disconnect` | `true` | 连接断开后保留终端内容（对应 `KeepTerminalContentOnDisconnect`） |
 | `terminal.show_history_after_disconnect` | `true` | 断开后显示历史，便于往上翻（对应 `ShowHistoryAfterDisconnect`） |
-| `terminal.connect_command` | 空 | 连上后自动执行的一行命令，配 tmux 可让重连回到同一个会话；支持 `%JMS_USER%` 占位符 |
+| `terminal.history_max_length` | `0` | 滚动缓冲行数，`0` 表示沿用 Royal TSX 的默认（`1000`） |
+| `terminal.history_unlimited` | `false` | 不限滚动缓冲行数 |
+| `terminal.connect_command` | 空 | 连上后自动执行的一行命令，配 tmux 可让重连回到同一个远端会话；支持 `%JMS_USER%` 占位符 |
 | `terminal.connect_command_wait_ms` | `2000` | 上面那条命令等多久再发（毫秒） |
 | `org_id` | 空 | 多组织部署时填组织 UUID，会作为 `X-JMS-ORG` 头发送 |
 | `verify_tls` | `true` | 自签证书的部署可以改成 `false` |

@@ -153,20 +153,25 @@ JMS_CREDS_EOF
 > 或者 `"history_unlimited": true`（不限制，噪音大的会话会吃内存）。
 > 默认值是 `0`，表示不动 Royal TSX 自己的设置。
 
-**重连**按 **⌘R**（菜单里的 Reconnect），重连当前标签页，内容还在。也可以去设置里把
-「双击连接标签页」的行为改成 Reconnect（`MouseDoubleClickModeConnectionTabs`），以后
-双击那个断开的标签页就重连。
+**重连**先在那台机器对应的**标签页上点右键**，里面有 **Reconnect Tab**（只重连这一个）。
+另外还有一个 **Reconnect all Disconnected**，只重连已经断开的，不碰还连着的。
+
+> **⌘R 不要当「重连当前标签页」用。**
+> ⌘R 绑的是菜单栏里的 **Reconnect**，作用范围比标签页大：它会先断开所有活动连接再重连，
+> 所以按下去会弹一个「Connections are still active. If you continue, all active
+> connections will be disconnected.」的确认框。只有一个连接时点「Yes, continue」也能用，
+> 但你同时开着别的机器时就会把它们一起踢掉。
+
+不想记右键菜单的话，去设置里把「双击连接标签页」的行为改成 **Reconnect**
+（`MouseDoubleClickModeConnectionTabs`），以后双击那个断开的标签页就重连。
 
 > **为什么不能直接按一下 `R`？**
 > 终端插件里没有这个功能——它基于 iTerm2，而 iTerm2 那个 "Session ended. Restart it?"
-> 的提示 Royal TSX 没有接出来（我查过插件自己的设置和 release notes，没有相关项）。
+> 的提示 Royal TSX 没有接出来（插件的设置项和 release notes 里都没有相关项）。
 >
-> macOS 倒是可以在「系统设置 → 键盘 → 键盘快捷键 → App 快捷键」里，给菜单项
-> **Reconnect** 指定一个自定义快捷键，技术上裸键 `R` 也能录进去。**但风险很大**：如果
-> "Reconnect" 这个菜单项在你正常打字时也是可用的，它就会把这期间你敲的每一个 `R` 都吃掉。
-> 想试可以试，建议先观察一下——真要吃键就删掉这个快捷键。
->
-> 稳妥的还是 **⌘R**。
+> 至于 macOS 的「App 快捷键」（系统设置 → 键盘 → 键盘快捷键），它**只能绑菜单栏里的项**，
+> 而 `Reconnect Tab` 是右键菜单项，够不着。能绑的只有那个范围更大的 `Reconnect`——绑了
+> 之后按一下会弹上面那个确认框，还会在正常打字时把 `R` 吃掉。不建议。
 
 ### 树里的名字
 

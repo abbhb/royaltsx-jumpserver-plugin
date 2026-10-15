@@ -29,7 +29,9 @@
 
   "terminal": {
     "keep_content_on_disconnect": true,
-    "show_history_after_disconnect": true
+    "show_history_after_disconnect": true,
+    "connect_command": "",
+    "connect_command_wait_ms": 2000
   },
 
   "options": {

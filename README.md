@@ -128,17 +128,41 @@ JMS_CREDS_EOF
    **「Keep remotely disconnected tabs open」**（`DontCloseTabOnRemoteDisconnect`），
    勾上。不勾的话，`exit` 或掉线时标签页还是会被关掉，前面那两条就看不到了。
 
-### 断开后怎么快速重连
+### 断开后回到原来的会话
 
-**⌘R** —— 就是菜单里的 **Reconnect**，重连当前标签页，内容还在。这是最快的路径。
+先讲清楚一件事：**SSH 协议本身没有会话恢复**。TCP 断了就是断了，重连永远是新建一条
+连接、新开一个 shell。koko 那边也一样——会话跟着你的 SSH 连接一起销毁，不会替你留着。
+所以「重连回去，原来那个实例还在」在 SSH 层面做不到，只能让目标机上有个跟 SSH 通道
+**解耦**的东西把 shell 撑着，也就是 **tmux**（或 screen）。
 
-也可以去设置里把「双击标签页」的行为改成 **Reconnect**（`MouseDoubleClickModeConnectionTabs`），
-以后双击那个断开的标签页就重连。
+于是可以这样配：连上以后自动进一个 tmux 会话。
+
+```json
+"terminal": {
+  "connect_command": "command -v tmux >/dev/null && tmux new -A -s royaltsx",
+  "connect_command_wait_ms": 2000
+}
+```
+
+`tmux new -A -s royaltsx` 的语义是「有就 attach，没有就新建」。效果：
+
+- 连上 → 进入名为 `royaltsx` 的 tmux 会话
+- 网络断掉 / 手滑 `exit` → **⌘R** 重连 → 回到**同一个会话**，滚动历史、跑着的任务都还在
+- 开头的 `command -v tmux >/dev/null &&` 是为了目标机没装 tmux 时安静跳过，不弹
+  `command not found`
+
+`connect_command` 就是连上以后打到远端 shell 里的一行命令，以 KeySequence 的形式发出，
+所以它是在远端执行的普通命令——想换成 screen 或者别的都行。`{WAIT:2000}` 是等 2 秒再
+发，避免和登录 banner 打架；你截图里那种带一大段注意事项 banner 的机器可以调大一点。
+
+**⌘R** = 菜单里的 **Reconnect**，重连当前标签页（内容还在，见上面两条设置）。
+也可以去设置里把「双击连接标签页」的行为改成 Reconnect
+（`MouseDoubleClickModeConnectionTabs`），以后双击那个断开的标签页就重连。
 
 > **为什么不能直接敲 `R` 或回车？**
-> 终端里的按键是转发给远端 shell 的，会话断了以后没有 shell 可以接收。而且裸键也不能
-> 绑定快捷键——那样正常连接时 `R` 和回车就打不进去了。RDP 插件在断线时会盖一层
-> "点击重连" 的浮层，但 iTerm2 那套终端插件没有这个浮层，所以只能走菜单命令。
+> 终端里的按键是转发给远端 shell 的，会话断了以后没有 shell 接收。而且裸键也不能绑定
+> 快捷键——那样正常连接时 `R` 和回车就打不进去了。RDP 插件断线时会盖一层「点击重连」
+> 的浮层，iTerm2 那套终端插件没有这个浮层，所以只能走菜单命令。
 
 > 另：`AutoReconnectMode`（Always / Never / Prompt）管的是**重启 Royal TSX 之后**要不要
 > 恢复上次的连接，和运行中掉线是两回事，别指望它。
@@ -242,6 +266,8 @@ koko SSH   : jumpserver.example.com:2222
 | `connection_auth.key_passphrase` | 空 | 私钥口令 |
 | `terminal.keep_content_on_disconnect` | `true` | 连接断开后保留终端内容（对应 `KeepTerminalContentOnDisconnect`） |
 | `terminal.show_history_after_disconnect` | `true` | 断开后显示历史，便于往上翻（对应 `ShowHistoryAfterDisconnect`） |
+| `terminal.connect_command` | 空 | 连上后自动执行的一行命令，配 tmux 可让重连回到同一个会话 |
+| `terminal.connect_command_wait_ms` | `2000` | 上面那条命令等多久再发（毫秒） |
 | `org_id` | 空 | 多组织部署时填组织 UUID，会作为 `X-JMS-ORG` 头发送 |
 | `verify_tls` | `true` | 自签证书的部署可以改成 `false` |
 | `options.group_by` | `asset` | `asset` 按资产分组；`node` 按 JumpServer 资产树分组 |

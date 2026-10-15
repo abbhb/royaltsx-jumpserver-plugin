@@ -85,6 +85,12 @@ DEFAULT_CONFIG = {
     "terminal": {
         "keep_content_on_disconnect": True,
         "show_history_after_disconnect": True,
+        # Sent to the remote shell once the session is up. Point it at a
+        # terminal multiplexer and a reconnect lands back in the same shell,
+        # with its scrollback and running jobs intact -- SSH itself has no
+        # session resumption, so this is the only way to get that.
+        "connect_command": "",
+        "connect_command_wait_ms": 2000,
     },
 }
 
@@ -583,13 +589,22 @@ def safe_folder_name(text):
 
 def apply_terminal_settings(connection, cfg):
     """Keep the terminal content so it can still be scrolled back after the
-    session ends -- whether by `exit` or by a dropped link."""
+    session ends -- whether by `exit` or by a dropped link -- and optionally
+    drop straight into a persistent session on the far side."""
     terminal = cfg.get("terminal") or {}
     properties = {}
     if terminal.get("keep_content_on_disconnect", True):
         properties["KeepTerminalContentOnDisconnect"] = True
     if terminal.get("show_history_after_disconnect", True):
         properties["ShowHistoryAfterDisconnect"] = True
+
+    command = (terminal.get("connect_command") or "").strip()
+    if command:
+        wait = int(terminal.get("connect_command_wait_ms") or 2000)
+        properties["KeySequence"] = "{{WAIT:{0}}}{1}{{ENTER}}".format(wait, command)
+        properties["KeySequenceEnabled"] = True
+        properties["KeySequenceMode"] = 0
+
     if properties:
         connection["Properties"] = properties
 

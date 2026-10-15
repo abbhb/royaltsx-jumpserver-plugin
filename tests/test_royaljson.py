@@ -293,6 +293,24 @@ class TestBuildObjects(StdinIsolated):
         self.assertTrue(objs)
         self.assertTrue(all("Properties" not in o for o in objs))
 
+    def test_connect_command_becomes_a_key_sequence(self):
+        # The way to survive a reconnect: drop into a multiplexer session that
+        # outlives the SSH channel.
+        cfg = base_config(terminal={
+            "connect_command": "tmux new -A -s royaltsx",
+            "connect_command_wait_ms": 1500,
+        })
+        for obj in connections(cfg, self.client):
+            properties = obj["Properties"]
+            self.assertTrue(properties["KeySequenceEnabled"])
+            self.assertEqual(properties["KeySequenceMode"], 0)
+            self.assertEqual(properties["KeySequence"],
+                             "{WAIT:1500}tmux new -A -s royaltsx{ENTER}")
+
+    def test_no_key_sequence_unless_configured(self):
+        for obj in connections(base_config(), self.client):
+            self.assertNotIn("KeySequence", obj["Properties"])
+
     def test_non_ip_address_uses_uuid(self):
         # koko's GetUserPermAssetsByIP only matches addresses; a hostname would
         # never resolve, so the asset UUID is the safe target.
